@@ -1,0 +1,46 @@
+name: Publish GameLink 0.8.0-alpha.5
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-alpha5-once.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Download tested Alpha 5 artifact
+        env:
+          ARTIFACT_DOWNLOAD_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-a654-8210-9080-34133bd49947/raw?se=2026-11-09T13%3A34%3A19Z&sp=r&sv=2026-02-06&sr=b&scid=dd7abd18-b8e3-580b-b0f9-27efba66305a&skoid=40ce4b34-a373-4a62-b0bf-44befe221915&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-09T07%3A24%3A11Z&ske=2026-11-10T07%3A24%3A11Z&sks=b&skv=2026-02-06&sig=uNQdUFeJdX0h93xZFqq8yi00Aw5YVjlPcrAXHXE3fP4%3D"
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 "$ARTIFACT_DOWNLOAD_URL" -o alpha5.zip
+          unzip -q alpha5.zip -d checked
+      - name: Verify NSIS size, SHA256, SHA512 and Alpha metadata
+        working-directory: checked
+        run: |
+          set -euo pipefail
+          test -f GameLink-Setup-0.8.0-alpha.5.exe
+          test -f GameLink-Setup-0.8.0-alpha.5.exe.blockmap
+          test -f alpha.yml
+          test -f SHA256SUMS.txt
+          test "$(stat -c%s GameLink-Setup-0.8.0-alpha.5.exe)" = 121663391
+          sha256sum -c SHA256SUMS.txt
+          echo '39ea476bb5b5f81cd09e2c13f07e6befd1696908fb2da2b801a484bcdcc54b42  GameLink-Setup-0.8.0-alpha.5.exe' | sha256sum -c -
+          grep -Fxq 'version: 0.8.0-alpha.5' alpha.yml
+          grep -Fxq 'path: GameLink-Setup-0.8.0-alpha.5.exe' alpha.yml
+          ACTUAL=$(openssl dgst -sha512 -binary GameLink-Setup-0.8.0-alpha.5.exe | base64 -w0)
+          test "$ACTUAL" = '6WKkvox2uhtySLVMTheXxTtULuBXNE1V9Be9qpBWxrvQXJZuvV18EyvaM6gVMNgfN19N7J9AAkZNX4IssSky1Q=='
+          grep -Fq "$ACTUAL" alpha.yml
+      - name: Publish as prerelease
+        working-directory: checked
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.8.0-alpha.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo 'Already exists; refusing to replace files'; exit 1; fi
+          gh release create v0.8.0-alpha.5 GameLink-Setup-0.8.0-alpha.5.exe GameLink-Setup-0.8.0-alpha.5.exe.blockmap alpha.yml \
+            --repo "$GITHUB_REPOSITORY" --target main --prerelease \
+            --title 'GameLink 0.8.0-alpha.5 — Unified Rooms' \
+            --notes 'Experimental Windows x64 build. One unified group-room flow for 2–6 players, up to two simultaneous streams, voice chat, spectator pointer, and host-approved window control. Legacy room support remains under advanced compatibility settings. Build and automated checks passed; real-device multi-PC video, voice, and remote-control behavior remains unverified. Stable v0.6.1 is unchanged.'
