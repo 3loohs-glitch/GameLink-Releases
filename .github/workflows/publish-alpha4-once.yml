@@ -1,0 +1,54 @@
+name: Publish GameLink v0.8.0-alpha.4 verified installer
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-alpha4-once.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Download verified Windows build artifact
+        env:
+          ARTIFACT_DOWNLOAD_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-bb5c-8210-8e0d-da637d4aaf2a/raw?se=2026-11-09T12%3A57%3A03Z&sp=r&sv=2026-02-06&sr=b&scid=5fa8b896-1a6e-520a-bdf2-f92d47a0e233&skoid=40ce4b34-a373-4a62-b0bf-44befe221915&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-09T06%3A42%3A45Z&ske=2026-11-10T06%3A42%3A45Z&sks=b&skv=2026-02-06&sig=Yi2ntiWQpIC4ZUWkNp3QcqAzFpNhwSPDLlXR8Y8vpMA%3D"
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 "$ARTIFACT_DOWNLOAD_URL" -o alpha4.zip
+          unzip -q alpha4.zip -d checked
+      - name: Validate same NSIS bits and update metadata
+        working-directory: checked
+        run: |
+          set -euo pipefail
+          test -f GameLink-Setup-0.8.0-alpha.4.exe
+          test -f GameLink-Setup-0.8.0-alpha.4.exe.blockmap
+          test -f alpha.yml
+          test -f SHA256SUMS.txt
+          test "$(stat -c%s GameLink-Setup-0.8.0-alpha.4.exe)" = 121661194
+          sha256sum -c SHA256SUMS.txt
+          echo 'b4a391a8dead378a2256b22a339f0aa70c641e9659913c7b84781fdf3d8ffc3c  GameLink-Setup-0.8.0-alpha.4.exe' | sha256sum -c -
+          grep -Fxq 'version: 0.8.0-alpha.4' alpha.yml
+          grep -Fxq 'path: GameLink-Setup-0.8.0-alpha.4.exe' alpha.yml
+          EXPECTED_SHA512='6X+q5CCKLpFASkhteTdVu6lQQ9rwk29Hti/JCzKCVq378SXe6yI7taAYwmj5xMIJCkwtMkdCVKJbu5ktlXP+Dw=='
+          ACTUAL_SHA512=$(openssl dgst -sha512 -binary GameLink-Setup-0.8.0-alpha.4.exe | base64 -w0)
+          test "$ACTUAL_SHA512" = "$EXPECTED_SHA512"
+      - name: Publish prerelease without changing stable latest
+        working-directory: checked
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.8.0-alpha.4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace uploaded assets.'
+            exit 1
+          fi
+          gh release create v0.8.0-alpha.4 \
+            GameLink-Setup-0.8.0-alpha.4.exe \
+            GameLink-Setup-0.8.0-alpha.4.exe.blockmap \
+            alpha.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --target main \
+            --prerelease \
+            --title 'GameLink 0.8.0-alpha.4 — Optional PayPal support' \
+            --notes 'Experimental Windows x64 release. Adds an optional GameLink support button opening https://www.paypal.com/paypalme/AliAA1 in the external browser. No payment is required for GameLink features. Built and SHA-256/SHA-512 verified from the same tested Windows NSIS artifact. Streaming, voice, and remote control remain experimental.'
