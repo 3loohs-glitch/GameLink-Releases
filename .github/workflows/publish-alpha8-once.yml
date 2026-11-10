@@ -1,0 +1,49 @@
+name: Publish GameLink v0.8.0-alpha.8 verified installer
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-alpha8-once.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Download tested Windows NSIS artifact
+        env:
+          ARTIFACT_DOWNLOAD_URL: "https://sdmntprindiasocentral.oaiusercontent.com/files/00000000-d6e8-8211-bd6c-eaac15aa4304/raw?se=2026-11-10T03%3A15%3A56Z&sp=r&sv=2026-02-06&sr=b&scid=a2a67aaa-9d19-5874-852c-410dbff06723&skoid=c094fe1e-1dc0-485a-8de0-10ab942be48f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-10T00%3A42%3A12Z&ske=2026-11-11T00%3A42%3A12Z&sks=b&skv=2026-02-06&sig=SQOrwpJHaCv35vH0Fh9xB1ZRmPzoXh8/m9l151EOWqE%3D"
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 900 "$ARTIFACT_DOWNLOAD_URL" -o alpha8.zip
+          unzip -q alpha8.zip -d checked
+      - name: Verify installer and matching metadata
+        working-directory: checked
+        run: |
+          set -euo pipefail
+          test -s GameLink-Setup-0.8.0-alpha.8.exe
+          test -s GameLink-Setup-0.8.0-alpha.8.exe.blockmap
+          test -s alpha.yml
+          test -s SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          grep -Fxq 'version: 0.8.0-alpha.8' alpha.yml
+          grep -Fxq 'path: GameLink-Setup-0.8.0-alpha.8.exe' alpha.yml
+          SHA512=$(openssl dgst -sha512 -binary GameLink-Setup-0.8.0-alpha.8.exe | base64 -w0)
+          grep -Fq "$SHA512" alpha.yml
+          echo "Verified Windows NSIS installer and matching update metadata"
+      - name: Publish Alpha 8 without changing stable release
+        working-directory: checked
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.8.0-alpha.8 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo 'Release already exists; refusing to replace assets'; exit 1; fi
+          gh release create v0.8.0-alpha.8 \
+            GameLink-Setup-0.8.0-alpha.8.exe \
+            GameLink-Setup-0.8.0-alpha.8.exe.blockmap \
+            alpha.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --target main \
+            --prerelease \
+            --title 'GameLink 0.8.0-alpha.8 — Game window pointer and per-viewer quality' \
+            --notes 'Experimental Windows x64 release. Adds an opt-in visual-only pointer overlay over the selected shared game window, hidden whenever that game is no longer the active window. Adds independently configurable viewer Auto/Manual quality requests (720p30, 1080p30, 1080p60), capped by the host capture quality without changing other viewer streams. The overlay is click-through and does not grant remote input. Windows NSIS build and automated checks succeeded. Actual Windows-to-Windows streaming and game-window overlays, especially exclusive fullscreen, are not yet confirmed on real devices. Stable v0.6.1 remains unchanged.'
