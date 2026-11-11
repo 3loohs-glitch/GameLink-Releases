@@ -1,0 +1,79 @@
+name: GameLink Alpha16 verified one-time public release
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-alpha16-staged.yml]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download and validate artifacts from final passing CI run
+        shell: bash
+        env:
+          WIN_TRANSFER: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-b0fc-8210-b899-679d88244f46/raw?se=2026-11-11T13%3A31%3A32Z&sp=r&sv=2026-06-06&sr=b&scid=c75b34c8-85d7-5b60-9738-57a01e5403c6&skoid=d294dba5-36f7-432b-aab8-935656489847&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-11T08%3A12%3A18Z&ske=2026-11-12T08%3A12%3A18Z&sks=b&skv=2026-06-06&sig=7k80NTk/GA5/%2BInCFR/heJ0jbfDrYCdocnSoD%2BovqTc%3D"
+          AND_TRANSFER: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-3f28-8210-829a-38d1aa8dd283/raw?se=2026-11-11T13%3A31%3A22Z&sp=r&sv=2026-06-06&sr=b&scid=935374ac-bb38-5b1f-bff9-1757a7e744d7&skoid=d294dba5-36f7-432b-aab8-935656489847&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-11T06%3A10%3A26Z&ske=2026-11-12T06%3A10%3A26Z&sks=b&skv=2026-06-06&sig=a4DWlAWvS5L98JnLX09t6sO9s48poQNT6K3h1JOotE4%3D"
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 --max-time 250 "$WIN_TRANSFER" -o win.zip
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 "$AND_TRANSFER" -o android.zip
+          echo 'a4bf6a01525899f4d41ee5a92056ab34af277b32b58a75eb6a44ff71cfb9d9e1  win.zip' | sha256sum -c -
+          echo 'b7dbbf42fda81aa259c90fe8c719ed4f94bd20b73df854657031b44e29aaf653  android.zip' | sha256sum -c -
+          mkdir -p windows android files
+          unzip -q win.zip -d windows
+          unzip -q android.zip -d android
+          exe="$(find windows -type f -name 'GameLink-Setup-0.8.0-alpha.16.exe' -print -quit)"
+          blockmap="$(find windows -type f -name 'GameLink-Setup-0.8.0-alpha.16.exe.blockmap' -print -quit)"
+          yml="$(find windows -type f -name 'alpha.yml' -print -quit)"
+          apk="$(find android -type f -name 'app-debug.apk' -print -quit)"
+          test -n "$exe" && test -n "$blockmap" && test -n "$yml" && test -n "$apk"
+          test -s "$exe" && test -s "$blockmap" && test -s "$yml" && test -s "$apk"
+          cp "$exe" files/
+          cp "$blockmap" files/
+          cp "$yml" files/
+          cp "$apk" files/GameLink-Android-Companion-0.1.0-alpha.3-debug.apk
+          grep -Fq 'version: 0.8.0-alpha.16' files/alpha.yml
+          grep -Fq 'GameLink-Setup-0.8.0-alpha.16.exe' files/alpha.yml
+          digest="$(openssl dgst -sha512 -binary files/GameLink-Setup-0.8.0-alpha.16.exe | openssl base64 -A)"
+          grep -Fq "sha512: $digest" files/alpha.yml
+          sha256sum files/GameLink-Setup-0.8.0-alpha.16.exe files/GameLink-Android-Companion-0.1.0-alpha.3-debug.apk
+          cat >files/NOTES.md <<'NOTES'
+          # GameLink v0.8.0-alpha.16 — Friend Room Invitations
+
+          - **Invite Friend** from the existing six-member group room, showing accepted friends and their online status.
+          - Select an online friend and invite them to the SAME active room, not a new room or voice call.
+          - Receiver explicitly chooses **Join** or **Decline** from a purple GameLink card. A Windows notification is shown when the app is hidden, and the Android companion can receive invitation notifications.
+          - Accepting uses a short-lived one-use room-specific join ticket; if already in another room, the guest leaves it safely before entering. If the old room belongs to that guest, its members are disconnected when the host leaves.
+          - Server prevents duplicate invitations, unauthenticated/non-friend invitations, and inviting members already in the room; six-person limit remains.
+          - Existing Alpha15 call notifications, ringtone, friends, voice and Alpha14 system-tray continuity are preserved.
+
+          Windows: GameLink-Setup-0.8.0-alpha.16.exe; alpha.yml and .blockmap support opt-in alpha updates.
+
+          Android testing companion: GameLink-Android-Companion-0.1.0-alpha.3-debug.apk is **DEBUG-SIGNED**, not a stable signed upgrade. Its signing key may differ from earlier installations. Do not uninstall the previous Android version only to install this build, because doing so may erase locally stored guest identity, friends and settings.
+
+          Windows UI/Electron, Android compile and signed backend-protocol automated tests passed. Real Windows-to-Android invites, voice/video and streaming across devices/networks still require manual hardware verification.
+
+          Source CI: 3loohs-glitch/GameLink Actions run 43028459822. Server deployed to Render from commit 0cd816edcc719a2d6ed0f5558ce85b5dbe3546c8.
+          NOTES
+      - name: Create private draft, upload and verify assets, then publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='v0.8.0-alpha.16'
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --prerelease --title 'GameLink Alpha 16 · Invite Friends to Room' --notes-file files/NOTES.md
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+            files/GameLink-Setup-0.8.0-alpha.16.exe \
+            files/GameLink-Setup-0.8.0-alpha.16.exe.blockmap \
+            files/alpha.yml \
+            files/GameLink-Android-Companion-0.1.0-alpha.3-debug.apk
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' >/tmp/assets.txt
+          for name in 'GameLink-Setup-0.8.0-alpha.16.exe' 'GameLink-Setup-0.8.0-alpha.16.exe.blockmap' 'alpha.yml' 'GameLink-Android-Companion-0.1.0-alpha.3-debug.apk'; do
+            grep -Fqx "$name" /tmp/assets.txt
+          done
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --title 'GameLink Alpha 16 · Invite Friends to Room' --notes-file files/NOTES.md
+          echo 'PASS Alpha16 release published with four verified assets'
